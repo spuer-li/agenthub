@@ -13,13 +13,42 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+app = FastAPI(title="AgentHub")
+
 conservation_store: dict[str, list[dict[str, str]]] = {}
+
+@app.get("/sessions")
+def list_sessions():
+    return {
+        "sessions": [
+            {
+                "session_id": session_id,
+                "message_count": len(history),
+            }
+            for session_id, history in conservation_store.items()
+        ]
+    }
+
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: str):
+    if session_id not in conservation_store:
+        raise HTTPException(
+            status_code=404,
+            detail="会话不存在。",
+        )
+    
+    del conservation_store[session_id]
+
+    logger.info("会话已删除，session_id=%s", session_id)
+
+    return {
+        "message": "会话删除成功",
+        "session_id": session_id,
+    }
 
 MAX_HISTORY_MESSAGE = 20
 
 SYSTEM_PROMPT = "你是一个友好、准确的AI助手，请使用中文回答用户"
-
-app = FastAPI(title="AgentHub")
 
 @app.get("/health")
 def health():
