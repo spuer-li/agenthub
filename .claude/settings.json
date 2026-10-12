@@ -5,7 +5,8 @@
       "Bash(C:/Users/root/miniconda3/envs/python3.11/python.exe -c ' *)",
       "Bash(curl -s -m 15 -o /tmp/m.out -w \"http_code=%{http_code} exit_ok\\\\n\" https://llm.ujn.edu.cn/v1/models)",
       "Read(//d/python_code/agenthub/**)",
-      "Bash(powershell.exe -NoProfile -Command \"Get-CimInstance Win32_Process -Filter \\\\\"name='python.exe'\\\\\" | Select-Object ProcessId,CreationDate,CommandLine | Format-List\")"
+      "Bash(powershell.exe -NoProfile -Command \"Get-CimInstance Win32_Process -Filter \\\\\"name='python.exe'\\\\\" | Select-Object ProcessId,CreationDate,CommandLine | Format-List\")",
+      "Bash(cd D:/python_code/agenthub *)"
     ]
   }
 }

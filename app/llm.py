@@ -7,19 +7,10 @@ client = AsyncOpenAI(
     base_url=settings.dashscope_base_url
 )
 
-async def chat(prompt: str) -> str:
+async def chat(messages: list[dict[str, str]]) -> str:
     response = await client.chat.completions.create(
         model=settings.dashscope_model,
-        messages=[
-            {
-                "role": "system",
-                "content": "你是一个友好、准确的 AI 助手，请使用中文回答用户。",
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ]
+        messages=messages
     )
 
     content = response.choices[0].message.content

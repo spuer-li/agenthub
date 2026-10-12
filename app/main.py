@@ -4,6 +4,7 @@ from app.llm import chat
 from openai import APIError
 
 import logging
+from uuid import uuid4
 
 logging.basicConfig(
     level=logging.INFO,
@@ -11,6 +12,12 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+conservation_store: dict[str, list[dict[str, str]]] = {}
+
+MAX_HISTORY_MESSAGE = 20
+
+SYSTEM_PROMPT = "你是一个友好、准确的AI助手，请使用中文回答用户"
 
 app = FastAPI(title="AgentHub")
 
@@ -25,12 +32,36 @@ def echo(req: EchoRequest):
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest):
-    logger.info("收到聊天请求，message_length=%d", len(req.message))
+    session_id = req.session_id or str(uuid4())
+
+    history = conservation_store.get(session_id, [])
+
+    message = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        *history,
+        {"role": "user", "content": req.message}
+    ]
+    logger.info(
+        "收到聊天请求，session_id=%s，message_length=%d",
+        session_id,
+        len(req.message),
+    )
 
     try:
-        answer = await chat(req.message)
-        logger.info("模型调用成功")
-        return ChatResponse(answer=answer)
+        answer = await chat(message)
+
+        updated_history = [
+            *history,
+            {"role": "user", "content": req.message},
+            {"role": "assistant", "content": answer}
+        ]
+
+        conservation_store[session_id] = updated_history[
+            -MAX_HISTORY_MESSAGE:
+        ]
+
+        logger.info("模型调用成功，session_id=%s", session_id)
+        return ChatResponse(answer=answer, session_id=session_id)
     
     except APIError:
         logger.exception("模型服务返回 API 错误")    
