@@ -1,10 +1,11 @@
+
 import json
 import logging
 
 from openai import AsyncOpenAI
 
 from app.config import settings
-from app.tools import calculator
+from app.tools import TOOL_REGISTRY, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,6 @@ client = AsyncOpenAI(
 )
 
 
-# 向模型声明：当前可以使用哪些工具
 TOOLS = [
     {
         "type": "function",
@@ -38,7 +38,6 @@ TOOLS = [
 
 
 async def chat(messages: list[dict]) -> str:
-    # 最多执行 5 轮模型请求，防止工具调用无限循环
     for _ in range(5):
         response = await client.chat.completions.create(
             model=settings.dashscope_model,
@@ -50,16 +49,11 @@ async def chat(messages: list[dict]) -> str:
         message = response.choices[0].message
         tool_calls = message.tool_calls
 
-        # 模型没有请求调用工具，直接返回最终回答
         if not tool_calls:
             return message.content or ""
 
-        # 把模型生成的工具调用请求加入对话
-        messages.append(
-            message.model_dump(exclude_none=True)
-        )
+        messages.append(message.model_dump(exclude_none=True))
 
-        # Python 根据模型的请求执行工具
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
 
@@ -68,25 +62,27 @@ async def chat(messages: list[dict]) -> str:
                     tool_call.function.arguments
                 )
 
-                if tool_name == "calculator":
-                    logger.info(
-                        "Agent 工具调用：工具名称=%s，参数=%s",
-                        tool_name,
-                        arguments,
-                    )
-                    expression = arguments.get("expression")
+                if not isinstance(arguments, dict):
+                    raise ValueError("工具参数必须是 JSON 对象")
 
-                    if not isinstance(expression, str):
-                        raise ValueError("expression 必须是字符串")
+                if tool_name not in TOOL_REGISTRY:
+                    raise ValueError(f"不支持的工具：{tool_name}")
 
-                    result = calculator(expression)
-                else:
-                    result = f"错误：不支持的工具 {tool_name}"
+                result = execute_tool(tool_name, arguments)
 
-            except (ValueError, TypeError, json.JSONDecodeError):
-                result = "工具调用失败：参数无效，请检查表达式。"
+                logger.info(
+                    "Agent 工具执行成功：tool=%s",
+                    tool_name,
+                )
 
-            # 将工具执行结果交还给模型
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "Agent 工具执行失败：tool=%s，原因=%s",
+                    tool_name,
+                    exc,
+                )
+                result = f"工具执行失败：{exc}"
+
             messages.append(
                 {
                     "role": "tool",
