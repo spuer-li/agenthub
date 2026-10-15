@@ -1,4 +1,3 @@
-
 def calculator(expression: str) -> str:
     """计算两个数字的加、减、乘、除。"""
     import ast
@@ -34,8 +33,12 @@ def calculator(expression: str) -> str:
         tree = ast.parse(expression, mode="eval")
         result = evaluate(tree)
         return str(result)
-    except (SyntaxError, ValueError, TypeError, ZeroDivisionError):
-        raise ValueError("表达式无效，请输入合法的四则运算表达式")
+    except SyntaxError:
+        raise ValueError("表达式语法错误，请输入合法的四则运算表达式")
+    except ValueError as exc:
+        if str(exc) == "除数不能为零":
+            raise
+        raise ValueError("表达式无效，请输入合法的四则运算表达式") from exc   
 
 def text_stats(text: str) -> str:
     """统计文本的字符数、非空白字符数和单词数。"""
@@ -60,6 +63,8 @@ TOOL_REGISTRY = {
 
 def execute_tool(tool_name: str, arguments: dict) -> str:
     """根据工具名称找到并执行对应的 Python 函数。"""
+    if not isinstance(arguments, dict):
+        raise ValueError("工具参数必须是字典")
 
     tool = TOOL_REGISTRY.get(tool_name)
 

@@ -228,3 +228,17 @@ def test_text_stats():
     assert data["character_count"] == 11
     assert data["non_whitespace_count"] == 10
     assert data["word_count"] == 2
+
+def test_execute_tool_rejects_non_dict_arguments():
+    from app.tools import execute_tool
+    import pytest
+
+    with pytest.raises(ValueError, match="工具参数必须是字典"):
+        execute_tool("calculator", None)
+
+def test_execute_tool_rejects_unknown_tool():
+    from app.tools import execute_tool
+    import pytest
+
+    with pytest.raises(ValueError, match="不支持的工具"):
+        execute_tool("unknown_tool", {})
