@@ -56,8 +56,21 @@ def text_stats(text: str) -> str:
 
 # 工具注册表：工具名称 -> Python 函数
 TOOL_REGISTRY = {
-    "calculator": calculator,
-    "text_stats": text_stats,
+    "calculator": {
+        "function": calculator,
+        "argument": "expression",
+        "description": "计算数学四则运算。当用户需要计算时使用。",
+        "parameter_description": "数学表达式，例如 125 * 36"
+    },
+    "text_stats": {
+        "function": text_stats,
+        "argument": "text",
+        "description": (
+            "统计一段文本的字符总数、非空白字符数和单词数。"
+            "当用户要求是统计文本长度或单词数量时使用。"
+        ),
+        "parameter_description": "需要统计的文本内容"
+    }
 }
 
 
@@ -66,25 +79,16 @@ def execute_tool(tool_name: str, arguments: dict) -> str:
     if not isinstance(arguments, dict):
         raise ValueError("工具参数必须是字典")
 
-    tool = TOOL_REGISTRY.get(tool_name)
+    tool_config = TOOL_REGISTRY.get(tool_name)
 
-    if tool is None:
+    if tool_config is None:
         raise ValueError(f"不支持的工具：{tool_name}")
+    
+    argument_name = tool_config["argument"]
+    argument_value = arguments.get(argument_name)
 
-    if tool_name == "calculator":
-        expression = arguments.get("expression")
+    if not isinstance(argument_value, str):
+        raise ValueError(f"{argument_name}必须是字符串")
 
-        if not isinstance(expression, str):
-            raise ValueError("expression 必须是字符串")
-
-        return tool(expression)
-
-    if tool_name == "text_stats":
-        text = arguments.get("text")
-
-        if not isinstance(text, str):
-            raise ValueError("text 必须是字符串")
-
-        return tool(text)
-
-    raise ValueError(f"工具参数处理逻辑尚未实现：{tool_name}")
+    tool = tool_config["function"]
+    return tool(argument_value)

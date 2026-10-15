@@ -1,11 +1,10 @@
-
 import json
 import logging
 
 from openai import AsyncOpenAI
 
 from app.config import settings
-from app.tools import TOOL_REGISTRY, execute_tool, text_stats
+from app.tools import TOOL_REGISTRY, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -19,44 +18,22 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "calculator",
-            "description": "计算数学四则运算。当用户需要计算时使用。",
+            "name": tool_name,
+            "description": config["description"],
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "expression": {
+                    config["argument"]: {
                         "type": "string",
-                        "description": "数学表达式，例如 125 * 36",
+                        "description": config["parameter_description"],
                     }
                 },
-                "required": ["expression"],
+                "required": [config["argument"]],
                 "additionalProperties": False,
             },
         },
-    },
-    
-    {
-        "type": "function",
-        "function": {
-            "name": "text_stats",
-            "description": (
-                "统计一段文本的字符总数、非空白字符数和单词数。"
-                "当用户要求统计文本长度或单词数量时使用。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {
-                        "type": "string",
-                        "description": "需要统计的文本内容",
-                    }
-                },
-                "required": ["text"],
-                "additionalProperties": False,
-            },
-        },
-    },
-
+    }
+    for tool_name, config in TOOL_REGISTRY.items()
 ]
 
 
