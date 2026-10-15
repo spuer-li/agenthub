@@ -5,7 +5,7 @@ import logging
 from openai import AsyncOpenAI
 
 from app.config import settings
-from app.tools import TOOL_REGISTRY, execute_tool
+from app.tools import TOOL_REGISTRY, execute_tool, text_stats
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,30 @@ TOOLS = [
                 "additionalProperties": False,
             },
         },
-    }
+    },
+    
+    {
+        "type": "function",
+        "function": {
+            "name": "text_stats",
+            "description": (
+                "统计一段文本的字符总数、非空白字符数和单词数。"
+                "当用户要求统计文本长度或单词数量时使用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "需要统计的文本内容",
+                    }
+                },
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+        },
+    },
+
 ]
 
 

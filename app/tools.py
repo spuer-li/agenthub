@@ -37,10 +37,24 @@ def calculator(expression: str) -> str:
     except (SyntaxError, ValueError, TypeError, ZeroDivisionError):
         raise ValueError("表达式无效，请输入合法的四则运算表达式")
 
+def text_stats(text: str) -> str:
+    """统计文本的字符数、非空白字符数和单词数。"""
+    import json
+
+    return json.dumps(
+        {
+            "character_count": len(text),
+            "non_whitespace_count": len("".join(text.split())),
+            "word_count": len(text.split()),
+        },
+        ensure_ascii=False,
+    )
+
 
 # 工具注册表：工具名称 -> Python 函数
 TOOL_REGISTRY = {
     "calculator": calculator,
+    "text_stats": text_stats,
 }
 
 
@@ -60,5 +74,12 @@ def execute_tool(tool_name: str, arguments: dict) -> str:
 
         return tool(expression)
 
-    raise ValueError(f"工具参数处理逻辑尚未实现：{tool_name}")
+    if tool_name == "text_stats":
+        text = arguments.get("text")
 
+        if not isinstance(text, str):
+            raise ValueError("text 必须是字符串")
+
+        return tool(text)
+
+    raise ValueError(f"工具参数处理逻辑尚未实现：{tool_name}")

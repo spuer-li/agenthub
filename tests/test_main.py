@@ -213,3 +213,18 @@ def test_chat_calls_calculator():
         and msg.get("content") == "4500"
         for msg in second_messages
     )
+
+def test_text_stats():
+    from app.tools import execute_tool
+    import json
+
+    result = execute_tool(
+        "text_stats",
+        {"text": "Hello World"}
+    )
+
+    data = json.loads(result)
+
+    assert data["character_count"] == 11
+    assert data["non_whitespace_count"] == 10
+    assert data["word_count"] == 2
