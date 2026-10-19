@@ -242,3 +242,67 @@ def test_execute_tool_rejects_unknown_tool():
 
     with pytest.raises(ValueError, match="不支持的工具"):
         execute_tool("unknown_tool", {})
+
+def test_add_numbers_integers():
+    from app.tools import execute_tool
+
+    result = execute_tool("add_numbers", {"a": 12, "b": 30})
+
+    assert result == "42"
+
+def test_add_numbers_float():
+    from app.tools import execute_tool
+
+    result = execute_tool("add_numbers", {"a": 1.5, "b": 2.25})
+
+    assert result == "3.75"
+
+def test_add_numbers_reject_boolean():
+
+    import pytest
+    from app.tools import execute_tool
+
+    with pytest.raises(ValueError):
+        execute_tool("add_numbers", {"a": True, "b": 2})
+
+def test_repeat_text_success():
+    from app.tools import execute_tool
+
+    result = execute_tool("repeat_text", {"text": "Hi", "times": 3})
+
+    assert result == "HiHiHi"
+
+def test_repeat_text_reject_float():
+    import pytest
+    from app.tools import execute_tool
+
+    with pytest.raises(ValueError):
+        execute_tool("repeat_text", {"text": "Hi", "times": 2.5})
+
+def test_repeat_text_reject_boolean():
+    import pytest
+    from app.tools import execute_tool
+
+    with pytest.raises(ValueError):
+        execute_tool("repeat_text", {"text": "Hi", "Times": True})
+
+def test_format_text_uppercase():
+    from app.tools import execute_tool
+
+    result = execute_tool("format_text", {"text": "hello", "uppercase": True})
+
+    assert result == "HELLO"
+
+def test_format_text_preserves_case():
+    from app.tools import execute_tool
+
+    result = execute_tool("format_text", {"text": "hello", "uppercase": False})
+
+    assert result == "hello"
+
+def test_format_text_reject_integer_as_boolean():
+    import pytest
+    from app.tools import execute_tool
+
+    with pytest.raises(ValueError):
+        execute_tool("format_text", {"text": "hello", "uppercase": 1})

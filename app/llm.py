@@ -23,12 +23,17 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    config["argument"]: {
-                        "type": "string",
-                        "description": config["parameter_description"],
+                    parameter_name: {
+                        "type": parameter_config["type"],
+                        "description": parameter_config["description"],
                     }
+                    for parameter_name, parameter_config in config["parameters"].items()
                 },
-                "required": [config["argument"]],
+                "required": [
+                    parameter_name
+                    for parameter_name, parameter_config in config["parameters"].items()
+                    if parameter_config.get("required", True)
+                    ],
                 "additionalProperties": False,
             },
         },

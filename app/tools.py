@@ -53,23 +53,97 @@ def text_stats(text: str) -> str:
         ensure_ascii=False,
     )
 
+def add_numbers(a: str, b: str) -> str:
+    return str(a+b)
+
+def repeat_text(text: str, times: int) -> str:
+    if times < 0:
+        raise ValueError("重复次数不能小于零")
+
+    if times > 1000:
+        raise ValueError("重复次数不能超过1000")
+
+    return text * times
+
+def format_text(text: str, uppercase: bool) -> str:
+    if uppercase:
+        return text.upper()
+    return text
 
 # 工具注册表：工具名称 -> Python 函数
 TOOL_REGISTRY = {
     "calculator": {
         "function": calculator,
-        "argument": "expression",
         "description": "计算数学四则运算。当用户需要计算时使用。",
-        "parameter_description": "数学表达式，例如 125 * 36"
+        "parameters": {
+            "expression": {
+                "type": "string",
+                "description": "数学表达式，例如 125 * 36",
+                "required": True
+            }
+        },
     },
     "text_stats": {
         "function": text_stats,
-        "argument": "text",
         "description": (
             "统计一段文本的字符总数、非空白字符数和单词数。"
             "当用户要求是统计文本长度或单词数量时使用。"
         ),
-        "parameter_description": "需要统计的文本内容"
+        "parameters": {
+            "text": {
+                "type": "string",
+                "description": "需要统计的文本内容",
+                "required": True
+            }
+        },
+    },
+    "add_numbers": {
+        "function": add_numbers,
+        "description": "计算两个数字的和。当用户需要将两个数字相加时使用。",
+        "parameters": {
+            "a": {
+                "type": "number",
+                "description": "第一个数字，可以是整数或小数",
+                "required": True
+            },
+            "b": {
+                "type": "number",
+                "description": "第二个数字，可以是整数或小数",
+                "required": True
+            }
+        }
+    },
+    "repeat_text": {
+        "function": repeat_text,
+        "description": "将指定文本重复指定次数",
+        "parameters": {
+            "text": {
+                "type": "string",
+                "description": "需要重复的文本",
+                "required": True
+            },
+            "times": {
+                "type": "integer",
+                "description": "重复次数，必须是整数",
+                "required": True
+            }
+        }
+    },
+    "format_text": {
+        "function": format_text,
+        "description": "根据选项决定是否将文本转换为大写。",
+        "parameters": {
+            "text": {
+                "type": "string",
+                "description": "需要处理的文本",
+                "required": True
+            },
+            "uppercase": {
+                "type": "boolean",
+                "description": "是否转换为大写",
+                "required": True
+            }
+        }
     }
 }
 
@@ -83,12 +157,41 @@ def execute_tool(tool_name: str, arguments: dict) -> str:
 
     if tool_config is None:
         raise ValueError(f"不支持的工具：{tool_name}")
-    
-    argument_name = tool_config["argument"]
-    argument_value = arguments.get(argument_name)
 
-    if not isinstance(argument_value, str):
-        raise ValueError(f"{argument_name}必须是字符串")
+    parameter_configs = tool_config["parameters"]
+    unexpected = set(arguments) - set(parameter_configs)
+    if unexpected:
+        raise ValueError(f"存在未定义的参数：{', '.join(unexpected)}")
+
+    type_mapping = {
+        "string": str,
+        "integer": int,
+        "number": (int, float),
+        "boolean": bool
+    }
+
+    for name, config in parameter_configs.items():
+        if name not in arguments:
+            if config.get("required", True):
+                raise ValueError(f"缺少必填参数：{name}")
+            continue
+
+        value = arguments[name]
+        argument_type = config["type"]
+    
+        if argument_type == "string":
+            valid = isinstance(value, str)
+        elif argument_type == "integer":
+            valid = isinstance(value, int) and not isinstance(value, bool)
+        elif argument_type == "number":
+            valid = isinstance(value, (int, float)) and not isinstance(value, bool)
+        elif argument_type == "boolean":
+            valid = isinstance(value, bool)
+        else:
+            raise ValueError(f"不支持的参数类型：{argument_type}")
+
+        if not valid:
+            raise ValueError(f"{value}必须是{argument_type}")    
 
     tool = tool_config["function"]
-    return tool(argument_value)
+    return tool(**arguments)
