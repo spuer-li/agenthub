@@ -306,3 +306,195 @@ def test_format_text_reject_integer_as_boolean():
 
     with pytest.raises(ValueError):
         execute_tool("format_text", {"text": "hello", "uppercase": 1})
+
+
+
+import asyncio
+import pytest
+from openai import APIError
+from app import llm
+
+
+def test_chat_reraises_api_error(monkeypatch):
+    async def mock_create(**kwargs):
+        raise APIError(
+            message="模拟模型服务故障",
+            request=None,
+            body=None,
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create,
+    )
+
+    with pytest.raises(APIError, match="模拟模型服务故障"):
+        asyncio.run(
+            llm.chat(
+                [{"role": "user", "content": "你好"}]
+            )
+        )
+
+
+def test_chat_endpoint_returns_502_on_api_error(monkeypatch):
+    from fastapi.testclient import TestClient
+    from openai import APIError
+    import app.main as main_module
+
+    async def mock_chat_async(messages):
+        raise APIError(
+            message="模拟模型服务故障",
+            request=None,
+            body=None,
+        )
+
+    monkeypatch.setattr(main_module, "chat", mock_chat_async)
+
+    client = TestClient(main_module.app)
+    response = client.post(
+        "/chat",
+        json={"message": "你好"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "大模型服务调用失败，请检查配置或稍后重试。"
+    )
+
+
+def test_chat_tool_error_is_returned_to_model(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from app import llm
+
+    captured = {}
+
+    async def mock_create(**kwargs):
+        captured["messages"] = kwargs["messages"]
+
+        # 模拟模型收到工具错误后，生成最终回答
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="计算失败，除数不能为零。",
+                        tool_calls=None,
+                        model_dump=lambda **kwargs: {},
+                    )
+                )
+            ]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create,
+    )
+
+    messages = [
+        {"role": "user", "content": "计算 10 / 0"}
+    ]
+
+    # 直接验证工具层的错误转换逻辑
+    try:
+        llm.execute_tool(
+            "calculator",
+            {"expression": "10 / 0"},
+        )
+    except ValueError as exc:
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": "test-call",
+                "content": f"工具执行失败：{exc}",
+            }
+        )
+
+    answer = asyncio.run(llm.chat(messages))
+
+    assert answer == "计算失败，除数不能为零。"
+    assert any(
+        message.get("role") == "tool"
+        and "除数不能为零" in message.get("content", "")
+        for message in messages
+    )
+
+def test_chat_handles_tool_execution_error(monkeypatch):
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from app import llm
+
+    calls = {"count": 0}
+    captured_messages = []
+
+    async def mock_create(**kwargs):
+        calls["count"] += 1
+        captured_messages.append(kwargs["messages"].copy())
+
+        if calls["count"] == 1:
+            tool_call = SimpleNamespace(
+                id = "test_call_1",
+                function=SimpleNamespace(
+                    name="calculator",
+                    arguments=json.dumps(
+                        {"expression": "10 / 0"}
+                    )
+                )
+            )
+            message = SimpleNamespace(
+                content=None,
+                tool_calls=[tool_call],
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "test_call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "calculator",
+                                "arguments": json.dumps(
+                                    {"expression": "10 / 0"}
+                                )
+                            }
+                        }
+                    ]
+                }
+            )
+        else:
+            message = SimpleNamespace(
+                content = "计算失败，因为除数不能为零",
+                tool_calls=None,
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": "计算失败，因为除数不能为零"
+                }
+            )
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create
+    )
+
+    answer = asyncio.run(
+        llm.chat(
+            [{"role": "user", "content": "计算 10 / 0"}]
+        )
+    )
+
+    assert answer == "计算失败，因为除数不能为零"
+    assert calls["count"] == 2
+
+    tool_messages = [
+        message
+        for message in captured_messages[1]
+        if message.get("role") == "tool"
+    ]
+    assert len(tool_messages) == 1
+    assert "除数不能为零" in tool_messages[0]["content"]

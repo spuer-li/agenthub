@@ -1,7 +1,8 @@
 import json
 import logging
+import time
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIError
 
 from app.config import settings
 from app.tools import TOOL_REGISTRY, execute_tool
@@ -44,12 +45,16 @@ TOOLS = [
 
 async def chat(messages: list[dict]) -> str:
     for _ in range(5):
-        response = await client.chat.completions.create(
-            model=settings.dashscope_model,
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-        )
+        try:
+            response = await client.chat.completions.create(
+                model=settings.dashscope_model,
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+            )
+        except APIError:
+            logging.exception("大模型 API 调用失败")
+            raise
 
         message = response.choices[0].message
         tool_calls = message.tool_calls
@@ -61,6 +66,7 @@ async def chat(messages: list[dict]) -> str:
 
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
+            start_time = time.perf_counter()
 
             try:
                 arguments = json.loads(
@@ -75,15 +81,21 @@ async def chat(messages: list[dict]) -> str:
 
                 result = execute_tool(tool_name, arguments)
 
+                elapsed = time.perf_counter() - start_time
+
                 logger.info(
-                    "Agent 工具执行成功：tool=%s",
+                    "Agent 工具执行成功：tool=%s,耗时=%.3f 秒",
                     tool_name,
+                    elapsed
                 )
 
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                elapsed = time.perf_counter() - start_time
+                
                 logger.warning(
-                    "Agent 工具执行失败：tool=%s，原因=%s",
+                    "Agent 工具执行失败：tool=%s，耗时=%.3f 秒，原因=%s",
                     tool_name,
+                    elapsed,
                     exc,
                 )
                 result = f"工具执行失败：{exc}"
