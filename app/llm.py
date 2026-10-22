@@ -67,6 +67,7 @@ async def chat(messages: list[dict]) -> str:
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
             start_time = time.perf_counter()
+            arguments = "参数解析失败"
 
             try:
                 arguments = json.loads(
@@ -84,17 +85,19 @@ async def chat(messages: list[dict]) -> str:
                 elapsed = time.perf_counter() - start_time
 
                 logger.info(
-                    "Agent 工具执行成功：tool=%s,耗时=%.3f 秒",
+                    "Agent 工具执行成功：tool=%s, arguments=%s,耗时=%.3f 秒",
                     tool_name,
+                    arguments,
                     elapsed
                 )
 
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 elapsed = time.perf_counter() - start_time
-                
+
                 logger.warning(
-                    "Agent 工具执行失败：tool=%s，耗时=%.3f 秒，原因=%s",
+                    "Agent 工具执行失败：tool=%s, arguments=%s, 耗时=%.3f 秒，原因=%s",
                     tool_name,
+                    arguments,
                     elapsed,
                     exc,
                 )

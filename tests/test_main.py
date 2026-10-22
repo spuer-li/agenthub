@@ -498,3 +498,65 @@ def test_chat_handles_tool_execution_error(monkeypatch):
     ]
     assert len(tool_messages) == 1
     assert "除数不能为零" in tool_messages[0]["content"]
+
+
+def test_chat_handles_invalid_tool_arguments(monkeypatch, caplog):
+    import asyncio
+    import logging
+    from types import SimpleNamespace
+    from app import llm
+
+    calls = {"count": 0}
+
+    async def mock_create(**kwargs):
+        calls["count"] += 1
+
+        if calls["count"] == 1:
+            message = SimpleNamespace(
+                content=None,
+                tool_calls=[
+                    SimpleNamespace(
+                        id="invalid_json_call",
+                        function=SimpleNamespace(
+                            name="calculator",
+                            arguments='{"expression": ',
+                        ),
+                    )
+                ],
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [],
+                },
+            )
+        else:
+            message = SimpleNamespace(
+                content="工具参数格式有误，无法完成计算。",
+                tool_calls=None,
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": "工具参数格式有误，无法完成计算。",
+                },
+            )
+
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.llm"):
+        answer = asyncio.run(
+            llm.chat(
+                [{"role": "user", "content": "请计算 10 / 2"}]
+            )
+        )
+
+    assert calls["count"] == 2
+    assert "工具参数格式有误" in answer
+    assert "Agent 工具执行失败" in caplog.text
+    assert "参数解析失败" in caplog.text
