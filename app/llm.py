@@ -44,6 +44,8 @@ TOOLS = [
 
 
 async def chat(messages: list[dict]) -> str:
+    messages = [message.copy() for message in messages]
+    
     for _ in range(5):
         try:
             response = await client.chat.completions.create(

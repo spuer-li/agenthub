@@ -876,3 +876,79 @@ def test_chat_continues_after_one_tool_fails(monkeypatch):
     assert "工具执行失败" in results_by_id["calc_call"]
     assert "除数不能为零" in results_by_id["calc_call"]
     assert results_by_id["format_call"] == "HELLO"
+
+def test_chat_does_not_modify_original_messages(monkeypatch):
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from app import llm
+
+    original_message = [
+        {"role": "user", "content": "计算2 + 3"}
+    ]
+
+    origianl_snapshot = [
+        message.copy() for message in original_message
+    ]
+
+    calls = {"count": 0}
+
+    async def mock_create(**kwargs):
+        calls["count"] += 1
+
+        if calls["count"] == 1:
+            tool_call = SimpleNamespace(
+                id="calc_call",
+                function=SimpleNamespace(
+                    name="calculator",
+                    arguments=json.dumps(
+                        {"expression": "2 + 3"}
+                    )
+                )
+            )
+
+            message = SimpleNamespace(
+                content=None,
+                tool_calls=[tool_call],
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "calc_call",
+                            "type": "function",
+                            "function": {
+                                "name": "calculator",
+                                "arguments": json.dumps(
+                                    {"expression": "2 + 3"}
+                                )
+                            }
+                        }
+                    ]
+                }
+            )
+        else:
+            message = SimpleNamespace(
+                content="计算结果是5",
+                tool_calls=None
+            )
+
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=message
+                )
+            ]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create
+    )
+
+    answer = asyncio.run(llm.chat(original_message))
+
+    assert answer == "计算结果是5"
+    assert calls["count"] == 2
+    assert original_message == origianl_snapshot
