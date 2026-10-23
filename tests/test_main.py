@@ -560,3 +560,319 @@ def test_chat_handles_invalid_tool_arguments(monkeypatch, caplog):
     assert "工具参数格式有误" in answer
     assert "Agent 工具执行失败" in caplog.text
     assert "参数解析失败" in caplog.text
+
+def test_chat_handles_multiple_tool_calls(monkeypatch):
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from app import llm
+
+    calls = {"count": 0}
+    captured_message = []
+
+    async def mock_create(**kwargs):
+        calls["count"] += 1 
+        captured_message.append(kwargs["messages"].copy())
+
+        if calls["count"] == 1:
+            tool_calls = [
+                SimpleNamespace(
+                    id="calc_call",
+                    function=SimpleNamespace(
+                        name="calculator",
+                        arguments=json.dumps(
+                            {"expression": "125 * 36"}
+                        )
+                    )
+                ),
+                SimpleNamespace(
+                    id="format_call",
+                    function=SimpleNamespace(
+                        name="format_text",
+                        arguments=json.dumps(
+                            {"text": "hello", "uppercase": True}
+                        )
+                    )
+                )
+            ]
+
+            message = SimpleNamespace(
+                content=None,
+                tool_calls=tool_calls,
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "calc_call",
+                            "type": "function",
+                            "function": {
+                                "name": "calculator",
+                                "arguments": json.dumps(
+                                    {"expression": "125 * 36"}
+                                )
+                            }
+                        },
+                        {
+                            "id": "format_call",
+                            "type": "function",
+                            "function": {
+                                "name": "format_text",
+                                "arguments": json.dumps(
+                                    {"text": "hello", "uppercase": True}
+                                )
+                            }
+                        }
+                    ]
+                }
+            )
+        else:
+            message = SimpleNamespace(
+                content="计算结果为 4500，转换后的文本为 HELLO。",
+                tool_calls=None,
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": "计算结果为 4500，转换后的文本为 HELLO。"
+                }
+            )
+
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create
+    )
+
+    answer = asyncio.run(
+        llm.chat(
+            [{"role": "user", "content": "计算 125 * 36，并把 hello 转为大写"}]
+        )
+    )
+
+    assert calls["count"] == 2
+    assert "4500" in answer
+    assert "HELLO" in answer
+
+    tool_messages = [
+        message
+        for message in captured_message[1]
+        if message.get("role") == "tool"
+    ]
+
+    assert len(tool_messages) == 2
+
+    results_by_id = {
+        message["tool_call_id"]: message["content"]
+        for message in tool_messages
+    }
+
+    assert results_by_id["calc_call"] == "4500"
+    assert results_by_id["format_call"] == "HELLO"
+
+def test_chat_stops_after_five_rounds(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from app import llm
+
+    calls = {"count": 0}
+
+    async def mock_create(**kwargs):
+        calls["count"] += 1
+
+        message = SimpleNamespace(
+            content=None,
+            tool_calls=[],
+            model_dump=lambda **kwargs: {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": []
+            }
+        )
+
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create
+    )
+
+    answer = asyncio.run(
+        llm.chat([{"role": "user", "content": "测试"}])
+    )
+
+    assert calls["count"] == 1
+    assert answer == ""
+
+def test_chat_stops_after_five_tool_rounds(monkeypatch):
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from app import llm
+
+    calls = {"count": 0}
+
+    async def mock_create(**kwargs):
+        calls["count"] += 1
+
+        tool_call = SimpleNamespace(
+            id=f"call_{calls['count']}",
+            function=SimpleNamespace(
+                name="calculator",
+                arguments=json.dumps({"expression": "1 + 1"})
+            )
+        )
+
+        message = SimpleNamespace(
+            content=None,
+            tool_calls=[tool_call],
+            model_dump=lambda **kwargs: {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": f"call_{calls['count']}",
+                        "type": "function",
+                        "function": {
+                            "name": "calculator",
+                            "arguments": json.dumps(
+                                {"expression": "1 + 1"}
+                            )
+                        }
+                    }
+                ]
+            }
+        )
+
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create
+    )
+
+    answer = asyncio.run(
+        llm.chat([{"role": "user", "content": "一直计算1+1"}])
+    )
+
+    assert calls["count"] == 5
+    assert answer == "工具调用次数过多，请简化问题后重试。"
+
+def test_chat_continues_after_one_tool_fails(monkeypatch):
+    import json
+    import asyncio
+    from types import SimpleNamespace
+    from app import llm
+
+    calls = {"count": 0}
+    captured_messages = []
+
+    async def mock_create(**kwargs):
+        calls["count"] += 1
+        captured_messages.append(kwargs["messages"].copy())
+
+        if calls["count"] == 1:
+            tool_calls = [
+                SimpleNamespace(
+                    id="calc_call",
+                    function=SimpleNamespace(
+                        name="calculator",
+                        arguments=json.dumps(
+                            {"expression": "1 / 0"}
+                        )
+                    )
+                ),
+                SimpleNamespace(
+                    id="format_call",
+                    function=SimpleNamespace(
+                        name="format_text",
+                        arguments=json.dumps(
+                            {"text": "hello", "uppercase": True}
+                        )
+                    )
+                )
+            ]
+
+            message = SimpleNamespace(
+                content=None,
+                tool_calls=tool_calls,
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "calc_call",
+                            "type": "function",
+                            "function": {
+                                "name": "calculator",
+                                "arguments": json.dumps(
+                                    {"expression": "1 / 0"}
+                                )
+                            }
+                        },
+                        {
+                            "id": "format_call",
+                            "type": "function",
+                            "function": {
+                                "name": "format_text",
+                                "arguments": json.dumps(
+                                    {"text": "hello", "uppercase": True}
+                                )
+                            }
+                        }
+                    ]
+                }
+            )
+        else:
+            message = SimpleNamespace(
+                content="计算工具执行失败，但文本转换成功，结果是 HELLO。",
+                tool_calls=None,
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": "计算工具执行失败，但文本转换成功，结果是 HELLO。"
+                }
+            )
+
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create
+    )
+
+    answer = asyncio.run(
+        llm.chat(
+            [{"role": "user", "content": "计算 1 / 0，并把 hello 转为大写"}]
+        )
+    )
+
+    assert calls["count"] == 2
+    assert "HELLO" in answer
+
+    tool_message = [
+        message
+        for message in captured_messages[1]
+        if message.get("role") == "tool"
+    ]
+
+    assert len(tool_message) == 2
+
+    results_by_id = {
+        message["tool_call_id"]: message["content"]
+        for message in tool_message
+    }
+
+    assert "工具执行失败" in results_by_id["calc_call"]
+    assert "除数不能为零" in results_by_id["calc_call"]
+    assert results_by_id["format_call"] == "HELLO"
