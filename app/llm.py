@@ -45,7 +45,7 @@ TOOLS = [
 
 async def chat(messages: list[dict]) -> str:
     messages = [message.copy() for message in messages]
-    
+
     for _ in range(5):
         try:
             response = await client.chat.completions.create(
@@ -63,6 +63,11 @@ async def chat(messages: list[dict]) -> str:
 
         if not tool_calls:
             return message.content or ""
+
+        for tool_call in tool_calls:
+            if not tool_call.id:
+                logger.error("模型返回的工具调用缺少 ID")
+                return "工具调用 ID 缺失，无法继续执行。"
 
         messages.append(message.model_dump(exclude_none=True))
 

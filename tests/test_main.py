@@ -952,3 +952,63 @@ def test_chat_does_not_modify_original_messages(monkeypatch):
     assert answer == "计算结果是5"
     assert calls["count"] == 2
     assert original_message == origianl_snapshot
+
+def test_chat_handles_tool_call_without_id(monkeypatch):
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from app import llm
+
+    calls = {"count": 0}
+
+    async def mock_create(**kwargs):
+        calls["count"] += 1
+
+        tool_call=SimpleNamespace(
+            id=None,
+            function=SimpleNamespace(
+                name="calculator",
+                arguments=json.dumps(
+                    {"expression": "2 + 3"}
+                )
+            )
+        )
+
+        message=SimpleNamespace(
+            content=None,
+            tool_calls=[tool_call],
+            model_dump=lambda **kwargs: {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": None,
+                        "type": "function",
+                        "function": {
+                            "name": "calculator",
+                            "arguments": json.dumps(
+                                {"expression": "2 + 3"}
+                            )
+                        }
+                    }
+                ]
+            }
+        )
+
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create
+    )
+
+    answer = asyncio.run(llm.chat(
+            [{"role": "user", "content": "计算 2 + 3"}]
+        ))
+
+    assert calls["count"] == 1
+    assert answer == "工具调用 ID 缺失，无法继续执行。"
+
