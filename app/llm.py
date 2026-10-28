@@ -72,14 +72,31 @@ async def chat(messages: list[dict]) -> str:
         messages.append(message.model_dump(exclude_none=True))
 
         for tool_call in tool_calls:
-            tool_name = tool_call.function.name
             start_time = time.perf_counter()
             arguments = "参数解析失败"
 
-            try:
-                arguments = json.loads(
-                    tool_call.function.arguments
+            if not getattr(tool_call, "function", None):
+                logger.error(
+                    "模型调用的返回缺少function对象：tool_call_id=%s",
+                    getattr(tool_call, "id", None),
                 )
+                return "工具调用结构异常，无法继续执行。"
+
+            tool_name = getattr(tool_call.function, "name", None)
+
+            if not isinstance(tool_name, str) or not tool_name.strip():
+                logger.error(
+                    "模型返回的工具调用缺少有效名称：tool_call_id=%s",
+                    tool_call.id,
+                )
+                return "工具调用名称缺失，无法继续执行。"
+            try:
+                raw_arguments = getattr(tool_call.function, "arguments", None)
+
+                if not isinstance(raw_arguments, str) or not raw_arguments.strip():
+                    raise ValueError("工具参数必须是非空 JSON 字符串")
+
+                arguments = json.loads(raw_arguments)
 
                 if not isinstance(arguments, dict):
                     raise ValueError("工具参数必须是 JSON 对象")

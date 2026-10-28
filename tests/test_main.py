@@ -362,63 +362,16 @@ def test_chat_endpoint_returns_502_on_api_error(monkeypatch):
         "大模型服务调用失败，请检查配置或稍后重试。"
     )
 
+def test_execute_tool_calculator_division_by_zero():
+    import pytest
+    from app.tools import execute_tool
 
-def test_chat_tool_error_is_returned_to_model(monkeypatch):
-    import asyncio
-    from types import SimpleNamespace
-    from app import llm
-
-    captured = {}
-
-    async def mock_create(**kwargs):
-        captured["messages"] = kwargs["messages"]
-
-        # 模拟模型收到工具错误后，生成最终回答
-        return SimpleNamespace(
-            choices=[
-                SimpleNamespace(
-                    message=SimpleNamespace(
-                        content="计算失败，除数不能为零。",
-                        tool_calls=None,
-                        model_dump=lambda **kwargs: {},
-                    )
-                )
-            ]
-        )
-
-    monkeypatch.setattr(
-        llm.client.chat.completions,
-        "create",
-        mock_create,
-    )
-
-    messages = [
-        {"role": "user", "content": "计算 10 / 0"}
-    ]
-
-    # 直接验证工具层的错误转换逻辑
-    try:
-        llm.execute_tool(
+    with pytest.raises(ValueError, match="除数不能为零"):
+        execute_tool(
             "calculator",
-            {"expression": "10 / 0"},
-        )
-    except ValueError as exc:
-        messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": "test-call",
-                "content": f"工具执行失败：{exc}",
-            }
+            {"expression": "10 / 0"}
         )
 
-    answer = asyncio.run(llm.chat(messages))
-
-    assert answer == "计算失败，除数不能为零。"
-    assert any(
-        message.get("role") == "tool"
-        and "除数不能为零" in message.get("content", "")
-        for message in messages
-    )
 
 def test_chat_handles_tool_execution_error(monkeypatch):
     import asyncio
@@ -526,7 +479,16 @@ def test_chat_handles_invalid_tool_arguments(monkeypatch, caplog):
                 model_dump=lambda **kwargs: {
                     "role": "assistant",
                     "content": None,
-                    "tool_calls": [],
+                    "tool_calls": [
+                        {
+                            "id": "invalid_json_call",
+                            "type": "function",
+                            "function": {
+                                "name": "calculator",
+                                "arguments": '{"expression": ',
+                            },
+                        }
+                    ],
                 },
             )
         else:
@@ -1011,4 +973,161 @@ def test_chat_handles_tool_call_without_id(monkeypatch):
 
     assert calls["count"] == 1
     assert answer == "工具调用 ID 缺失，无法继续执行。"
+
+def test_chat_handles_missing_tool_function(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from app import llm
+
+    calls = {"count": 0}
+
+    async def mock_create(**kwargs):
+        calls["count"] += 1
+
+        if calls["count"] == 1:
+            message=SimpleNamespace(
+                content=None,
+                tool_calls=[
+                    SimpleNamespace(
+                        id="missing_function_call",
+                        function=None
+                    )
+                ],
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "missiong_function_call",
+                            "type": "function",
+                            "function": None
+                        }
+                    ]
+                }
+            )
+        else:
+            message=SimpleNamespace(
+                content="工具调用结构异常。",
+                tool_calls=None,
+                model_dump=lambda **kwargs: {
+                    "role": "assistant",
+                    "content": "工具调用结构异常。",
+                },
+            )
+
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create,
+    )
+
+    answer = asyncio.run(
+        llm.chat(
+            [{"role": "user", "content": "请计算 2 + 3"}]
+        )
+    )
+
+    assert answer == "工具调用结构异常，无法继续执行。"
+    assert calls["count"] == 1
+
+def test_chat_handles_missing_tool_name(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from app import llm
+
+    async def mock_create(**kwargs):
+        tool_call = SimpleNamespace(
+            id="missing_name_call",
+            function=SimpleNamespace(
+                name=None,
+                arguments='{"expression": "2 + 3"}',
+            ),
+        )
+        message = SimpleNamespace(
+            content=None,
+            tool_calls=[tool_call],
+            model_dump=lambda **kwargs: {},
+        )
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create,
+    )
+
+    answer = asyncio.run(llm.chat([
+        {"role": "user", "content": "计算 2 + 3"}
+    ]))
+
+    assert answer == "工具调用名称缺失，无法继续执行。"
+
+def test_chat_propagates_unexpected_tool_error(monkeypatch):
+    import asyncio
+    import json
+    import pytest
+    from types import SimpleNamespace
+    from app import llm
+
+    async def mock_create(**kwargs):
+        tool_call=SimpleNamespace(
+            id="runtime_error_call",
+            function=SimpleNamespace(
+                name="calculator",
+                arguments=json.dumps({"expression": "1 + 1"})
+            )
+        )
+
+        message=SimpleNamespace(
+            content=None,
+            tool_calls=[tool_call],
+            model_dump=lambda **kwargs: {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "runtime_error_call",
+                        "type": "function",
+                        "function": {
+                            "name": "calculator",
+                            "arguments": json.dumps(
+                                {"expression": "1 + 1"}
+                            )
+                        }
+                    }
+                ]
+            }
+        )
+
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    def mock_execute_tool(tool_name, arguments):
+        raise RuntimeError("模拟工具内部异常") 
+
+    monkeypatch.setattr(
+        llm.client.chat.completions,
+        "create",
+        mock_create
+    )
+
+    monkeypatch.setattr(
+        llm,
+        "execute_tool",
+        mock_execute_tool
+    )
+
+    with pytest.raises(RuntimeError, match="模拟工具内部异常"):
+        asyncio.run(
+            llm.chat(
+                [{"role": "user", "content": "1 + 1"}]
+            )
+        )
 
